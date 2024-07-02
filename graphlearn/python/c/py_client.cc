@@ -16,11 +16,11 @@ limitations under the License.
 #include <cstdint>
 #include <typeinfo>
 
-#include "graphlearn/include/client.h"
-#include "graphlearn/include/dag_dataset.h"
-#include "graphlearn/include/status.h"
-#include "graphlearn/python/c/py_bind.h"
-#include "graphlearn/python/c/py_wrapper.h"
+#include "include/client.h"
+#include "include/dag_dataset.h"
+#include "include/status.h"
+#include "python/c/py_bind.h"
+#include "python/c/py_wrapper.h"
 
 using namespace graphlearn;
 
@@ -44,7 +44,7 @@ void init_client_module(py::module& m) {
   DEF_REQ(ConditionalSamplingRequest);
   DEF_REQ(AggregatingRequest);
   DEF_REQ(SubGraphRequest);
-  DEF_REQ(GetCountRequest);
+  DEF_REQ(GetStatsRequest);
   DEF_REQ(GetDegreeRequest);
 
   DEF_RES(GetNodesResponse);
@@ -54,7 +54,7 @@ void init_client_module(py::module& m) {
   DEF_RES(SamplingResponse);
   DEF_RES(AggregatingResponse);
   DEF_RES(SubGraphResponse);
-  DEF_RES(GetCountResponse);
+  DEF_RES(GetStatsResponse);
   DEF_RES(GetDegreeResponse);
 
   // Client
@@ -88,8 +88,8 @@ void init_client_module(py::module& m) {
          CALL_FUNC(SubGraph),
          py::arg("request"),
          py::arg("response"))
-    .def("get_count",
-         CALL_FUNC(GetCount),
+    .def("get_stats",
+         CALL_FUNC(GetStats),
          py::arg("request"),
          py::arg("response"))
     .def("get_degree",
@@ -103,12 +103,12 @@ void init_client_module(py::module& m) {
          py::arg("request"),
          py::arg("response"))
     .def("run_dag",
-         [](Client & self, DagDef* dag_def) {
+         [](Client & self, DagDef* dag_def, const bool copy) {
            std::unique_ptr<DagRequest> req(new DagRequest());
-           req->ParseFrom(dag_def);
+           req->ParseFrom(dag_def, copy);
            return self.RunDag(req.get());
          },
-         py::arg("dag_def"))
+         py::arg("dag_def"), py::arg("copy") = false)
     .def("get_dag_values",
          CALL_FUNC(GetDagValues),
          py::arg("request"),
@@ -118,7 +118,11 @@ void init_client_module(py::module& m) {
           return self.Sampling(req, res);
         },
         py::arg("request"),
-        py::arg("response"));
+        py::arg("response"))
+    .def("get_own_servers",
+         [](Client& self) {
+           return py::cast(self.GetOwnServers());
+         });
 
   m.def("del_op_request", [](OpRequest* req) { delete req; });
   m.def("del_op_response", [](OpResponse* res) { delete res; });
@@ -291,7 +295,8 @@ void init_client_module(py::module& m) {
         py::arg("type"),
         py::arg("strategy"),
         py::arg("neighbor_count"),
-        py::arg("filter_type"));
+        py::arg("filter_type"),
+        py::arg("filter_field"));
 
   m.def("new_conditional_sampling_request",
         &new_conditional_sampling_request,
@@ -388,15 +393,19 @@ void init_client_module(py::module& m) {
   m.def("new_subgraph_request",
         &new_subgraph_request,
         py::return_value_policy::reference,
-        py::arg("seed_type"),
         py::arg("nbr_type"),
-        py::arg("strategy"),
-        py::arg("batch_size"),
-        py::arg("epoch"));
+        py::arg("num_nbrs"),
+        py::arg("need_dist"));
 
   m.def("new_subgraph_response",
         &new_subgraph_response,
         py::return_value_policy::reference);
+
+  m.def("set_subgraph_request",
+        [](SubGraphRequest* req, py::object src_ids, py::object dst_ids) {
+          ImportNumpy();
+          set_subgraph_request(req, src_ids.ptr(), dst_ids.ptr());
+        });
 
   m.def("get_node_set",
         [](SubGraphResponse* res) {
@@ -426,20 +435,32 @@ void init_client_module(py::module& m) {
         },
         py::return_value_policy::reference);
 
-  // GetCount
-  m.def("new_get_count_request",
-        &new_get_count_request,
-        py::return_value_policy::reference,
-        py::arg("type"),
-        py::arg("is_node"));
-
-  m.def("new_get_count_response",
-        &new_get_count_response,
+  m.def("get_dist_to_src",
+        [](SubGraphResponse* res) {
+          ImportNumpy();
+          CAST_RETURN(get_dist_to_src(res));
+        },
         py::return_value_policy::reference);
 
-  m.def("get_count",
-        [](GetCountResponse* res) {
-          return get_count(res);
+  m.def("get_dist_to_dst",
+        [](SubGraphResponse* res) {
+          ImportNumpy();
+          CAST_RETURN(get_dist_to_dst(res));
+        },
+        py::return_value_policy::reference);
+
+  // GetStats
+  m.def("new_get_stats_request",
+        &new_get_stats_request,
+        py::return_value_policy::reference);
+
+  m.def("new_get_stats_response",
+        &new_get_stats_response,
+        py::return_value_policy::reference);
+
+  m.def("get_stats",
+        [](GetStatsResponse* res) {
+          return get_stats(res);
         },
         py::return_value_policy::reference);
 
@@ -493,6 +514,15 @@ void init_client_module(py::module& m) {
           CAST_RETURN(get_dag_value(res, dag_id, key));
         },
         py::return_value_policy::reference);
+
+  m.def("get_dag_value_indice",
+        [](GetDagValuesResponse* res, int32_t dag_id,
+           const std::string& key) {
+          ImportNumpy();
+          CAST_RETURN(get_dag_value_indice(res, dag_id, key));
+        },
+        py::return_value_policy::reference);
+
   m.def("del_get_dag_value_response", [](GetDagValuesResponse* res) { delete res; });
 
   // dag

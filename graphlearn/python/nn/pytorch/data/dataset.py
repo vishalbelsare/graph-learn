@@ -16,17 +16,20 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import os
 import atexit
+import os
 
-import torch as th
+try:
+  import torch as th
+except ImportError:
+  pass
 
 from graphlearn.python.errors import OutOfRangeError
 from graphlearn.python.nn.dataset import Dataset as RawDataset
 from graphlearn.python.nn.pytorch.data.utils import get_cluster_spec, is_server_launched
 
 class Dataset(th.utils.data.IterableDataset):
-  def __init__(self, query, window=5, induce_func=None, graph=None, cluster=None):
+  def __init__(self, query, window=10, induce_func=None, graph=None, cluster=None):
     """Dataset reformats the sampled batch from GSL query as `Data` object
     consists of Pytorch Tensors.
     Args:

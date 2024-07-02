@@ -19,15 +19,17 @@ limitations under the License.
 #include <cstdarg>
 #include <cstring>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
-#include "graphlearn/include/aggregating_request.h"
-#include "graphlearn/include/graph_request.h"
-#include "graphlearn/include/sampling_request.h"
-#include "graphlearn/include/subgraph_request.h"
-#include "graphlearn/include/sampling_request.h"
-#include "graphlearn/proto/dag.pb.h"
-#include "graphlearn/proto/request.pb.h"
-#include "graphlearn/python/c/py_bind.h"
+#include "include/aggregating_request.h"
+#include "include/graph_request.h"
+#include "include/sampling_request.h"
+#include "include/subgraph_request.h"
+#include "include/sampling_request.h"
+#include "generated/proto/dag.pb.h"
+#include "generated/proto/request.pb.h"
+#include "python/c/py_bind.h"
 
 using namespace graphlearn;  // NOLINT
 
@@ -366,8 +368,9 @@ SamplingRequest* new_sampling_request(
     const std::string& type,
     const std::string& strategy,
     int32_t neighbor_count,
-    int32_t filter_type) {
-  return new SamplingRequest(type, strategy, neighbor_count, filter_type);
+    FilterType filter_type,
+    FilterField filter_field) {
+  return new SamplingRequest(type, strategy, neighbor_count, filter_type, filter_field);
 }
 
 ConditionalSamplingRequest* new_conditional_sampling_request(
@@ -416,7 +419,7 @@ void set_conditional_sampling_request_cols(
 }
 
 PyObject* get_sampling_node_ids(SamplingResponse* res) {
-  int32_t size = res->TotalNeighborCount();
+  int32_t size = res->GetShape().size;
   npy_intp shape[1];
   shape[0] = size;
   PyArray_Descr* descr = PyArray_DescrFromType(NPY_INT64);
@@ -428,7 +431,7 @@ PyObject* get_sampling_node_ids(SamplingResponse* res) {
 }
 
 PyObject* get_sampling_edge_ids(SamplingResponse* res) {
-  int32_t size = res->TotalNeighborCount();
+  int32_t size = res->GetShape().size;
   npy_intp shape[1];
   shape[0] = size;
   PyArray_Descr* descr = PyArray_DescrFromType(NPY_INT64);
@@ -440,14 +443,14 @@ PyObject* get_sampling_edge_ids(SamplingResponse* res) {
 }
 
 PyObject* get_sampling_node_degrees(SamplingResponse* res) {
-  int32_t size = res->BatchSize();
+  int32_t size = res->GetShape().dim1;
   npy_intp shape[1];
-  shape[0] = res->BatchSize();
+  shape[0] = size;
   PyArray_Descr* descr = PyArray_DescrFromType(NPY_INT32);
   PyObject* obj = PyArray_Zeros(1, shape, descr, 0);
   PyArrayObject* np_array = reinterpret_cast<PyArrayObject*>(obj);
   memcpy(reinterpret_cast<int32_t*>(PyArray_DATA(np_array)),
-         res->GetDegrees(), size * INT32_BYTES);
+         res->GetShape().segments.data(), size * INT32_BYTES);
   return obj;
 }
 
@@ -492,16 +495,28 @@ PyObject* get_aggregating_nodes(AggregatingResponse* res) {
 }
 
 SubGraphRequest* new_subgraph_request(
-    const std::string& seed_type,
     const std::string& nbr_type,
-    const std::string& strategy,
-    int32_t batch_size,
-    int32_t epoch) {
-  return new SubGraphRequest(seed_type, nbr_type, strategy, batch_size, epoch);
+    const std::vector<int32_t>& num_nbrs,
+    bool need_dist) {
+  return new SubGraphRequest(nbr_type, num_nbrs, need_dist);
 }
 
 SubGraphResponse* new_subgraph_response() {
   return new SubGraphResponse();
+}
+
+void set_subgraph_request(SubGraphRequest* req, PyObject* src_ids,
+    PyObject* dst_ids) {
+  PyArrayObject* srcs = reinterpret_cast<PyArrayObject*>(src_ids);
+  npy_intp batch_size = PyArray_Size(src_ids);
+  if (dst_ids != Py_None) {
+    PyArrayObject* dsts = reinterpret_cast<PyArrayObject*>(dst_ids);
+    req->Set(reinterpret_cast<int64_t*>(PyArray_DATA(srcs)),
+             reinterpret_cast<int64_t*>(PyArray_DATA(dsts)),
+             batch_size);
+  } else {
+    req->Set(reinterpret_cast<int64_t*>(PyArray_DATA(srcs)), batch_size);
+  }
 }
 
 PyObject* get_node_set(SubGraphResponse* res) {
@@ -548,17 +563,44 @@ PyObject* get_edge_set(SubGraphResponse* res) {
   return obj;
 }
 
-GetCountRequest* new_get_count_request(
-    const std::string& type, bool is_node) {
-  return new GetCountRequest(type, is_node);
+PyObject* get_dist_to_src(SubGraphResponse* res) {
+  npy_intp shape[1];
+  shape[0] = res->NodeCount();
+  PyArray_Descr* descr = PyArray_DescrFromType(NPY_INT32);
+  PyObject* obj = PyArray_Zeros(1, shape, descr, 0);
+  PyArrayObject* np_array = reinterpret_cast<PyArrayObject*>(obj);
+  memcpy(PyArray_DATA(np_array), res->DistToSrc(),
+         res->NodeCount() * INT32_BYTES);
+  return obj;
 }
 
-GetCountResponse* new_get_count_response() {
-  return new GetCountResponse();
+PyObject* get_dist_to_dst(SubGraphResponse* res) {
+  npy_intp shape[1];
+  shape[0] = res->NodeCount();
+  PyArray_Descr* descr = PyArray_DescrFromType(NPY_INT32);
+  PyObject* obj = PyArray_Zeros(1, shape, descr, 0);
+  PyArrayObject* np_array = reinterpret_cast<PyArrayObject*>(obj);
+  memcpy(PyArray_DATA(np_array), res->DistToDst(),
+         res->NodeCount() * INT32_BYTES);
+  return obj;
 }
 
-int32_t get_count(GetCountResponse* res) {
-  return res->Count();
+GetStatsRequest* new_get_stats_request() {
+  return new GetStatsRequest();
+}
+
+GetStatsResponse* new_get_stats_response() {
+  return new GetStatsResponse();
+}
+
+Counts get_stats(GetStatsResponse* res) {
+  Counts counts;
+  for(const auto& it : res->tensors_) {
+    for (int32_t i = 0; i < it.second.Size(); ++i) {
+      counts[it.first].push_back(it.second.GetInt32(i));
+    }
+  }
+  return counts;
 }
 
 GetDegreeRequest* new_get_degree_request(
@@ -629,35 +671,58 @@ PyObject* PyArrayFromStringVector(
   return obj;
 }
 
+// values
 PyObject* get_dag_value(GetDagValuesResponse* res,
                         int32_t node_id,
                         const std::string& key) {
   auto t = res->GetValue(node_id, key);
-  if (t == nullptr) {
+  auto values = std::get<0>(t);
+  if (values == nullptr) {
     Py_RETURN_NONE;
   }
-  int32_t size = t->Size();
+  int32_t size = values->Size();
   npy_intp shape[1];
   shape[0] = size;
 
   PyObject* obj = nullptr;
 
-  switch (t->DType()) {
+  switch (values->DType()) {
   case kInt32:
-    obj = PyArrayFromIntVector(t->GetInt32(), shape);
+    obj = PyArrayFromIntVector(values->GetInt32(), shape);
     break;
   case kInt64:
-    obj = PyArrayFromInt64Vector(t->GetInt64(), shape);
+    obj = PyArrayFromInt64Vector(values->GetInt64(), shape);
     break;
   case kFloat:
-    obj = PyArrayFromFloatVector(t->GetFloat(), shape);
+    obj = PyArrayFromFloatVector(values->GetFloat(), shape);
     break;
   case kString:
-    obj = PyArrayFromStringVector(t->GetString(), shape);
+    obj = PyArrayFromStringVector(values->GetString(), shape);
     break;
   default:
     break;
   }
+
+  return PyArray_Return(reinterpret_cast<PyArrayObject*>(obj));
+}
+
+PyObject* get_dag_value_indice(GetDagValuesResponse* res,
+                              int32_t node_id,
+                              const std::string& key) {
+
+  auto t = res->GetValue(node_id, key);
+  auto indices = std::get<1>(t);
+  if (indices == nullptr) {
+    Py_RETURN_NONE;
+  }
+  int32_t size = indices->Size();
+  if (size == 0) {
+    Py_RETURN_NONE;
+  }
+  npy_intp shape[1];
+  shape[0] = size;
+
+  PyObject* obj = PyArrayFromIntVector(std::get<1>(t)->GetInt32(), shape);
   return PyArray_Return(reinterpret_cast<PyArrayObject*>(obj));
 }
 

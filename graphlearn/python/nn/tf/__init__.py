@@ -36,11 +36,13 @@ from graphlearn.python.nn.tf.model.ego_gnn import EgoGNN
 from graphlearn.python.nn.tf.model.link_predictor import LinkPredictor
 
 # SubGraph
-from graphlearn.python.nn.dataset import SubKeys
-from graphlearn.python.nn.utils.induce_graph_with_edge import induce_graph_with_edge
 from graphlearn.python.nn.tf.data.batchgraph import BatchGraph
+from graphlearn.python.nn.tf.data.hetero_batchgraph import HeteroBatchGraph
+from graphlearn.python.nn.tf.data.subgraph_inducer import SubGraphInducer
+from graphlearn.python.nn.tf.data.subgraph_processor import SubGraphProcessor
 from graphlearn.python.nn.tf.layers.gat_conv import GATConv
 from graphlearn.python.nn.tf.layers.gcn_conv import GCNConv
+from graphlearn.python.nn.tf.layers.hetero_conv import HeteroConv
 from graphlearn.python.nn.tf.layers.sage_conv import SAGEConv
 from graphlearn.python.nn.tf.layers.sub_conv import SubConv
 from graphlearn.python.nn.tf.model.gat import GAT

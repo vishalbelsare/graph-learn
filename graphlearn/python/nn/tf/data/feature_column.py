@@ -20,14 +20,19 @@ import json
 import os
 
 import numpy as np
-import tensorflow as tf
+try:
+  # https://www.tensorflow.org/guide/migrate
+  import tensorflow.compat.v1 as tf
+  tf.disable_v2_behavior()
+except ImportError:
+  import tensorflow as tf
 
 from graphlearn.python.nn.tf.config import conf
 from graphlearn.python.nn.tf.module import Module
 
 
 class FeatureColumn(Module):
-  """ Transforms raw features to dense tensors. For continuous features, just 
+  """ Transforms raw features to dense tensors. For continuous features, just
   return the original values, for categorical features, embeds them to dense
   vectors.
 
@@ -97,10 +102,10 @@ class NumericColumn(FeatureColumn):
   """ Represents real valued or numerical features.
   Args:
     name: A unique string identifying the input feature.
-    normalizer_func: If not `None`, a function that can be used to normalize 
-      the value of the tensor. Normalizer function takes the input `Tensor` 
-      as its  argument, and returns the output `Tensor`. 
-      (e.g. lambda x: (x - 1.0) / 2.0). 
+    normalizer_func: If not `None`, a function that can be used to normalize
+      the value of the tensor. Normalizer function takes the input `Tensor`
+      as its  argument, and returns the output `Tensor`.
+      (e.g. lambda x: (x - 1.0) / 2.0).
   """
   def __init__(self, name, normalizer_func=None):
     self.normalizer_func = normalizer_func
@@ -108,7 +113,7 @@ class NumericColumn(FeatureColumn):
   def forward(self, x):
     """
     Args:
-      x: A 1D Tensor with type tf.float32 or other type which can be casted to 
+      x: A 1D Tensor with type tf.float32 or other type which can be casted to
       tf.float32.
     Returns:
       A `tf.Tensor` with the same shape of the input feature and with the type
@@ -266,7 +271,7 @@ class SparseEmbeddingColumn(PartitionableColumn):
       x = tf.expand_dims(x, axis=0)
       is_scala = True
 
-    sparse_x = tf.string_split(x, self._delimiter)
+    sparse_x = tf.string_split(x, self._delimiter, skip_empty=False)
     x = tf.strings.to_hash_bucket_fast(sparse_x.values, self._bucket_size)
     sp = tf.sparse.SparseTensor(sparse_x.indices, x, sparse_x.dense_shape)
     ret = tf.nn.embedding_lookup_sparse(self._var, sp, None)
@@ -297,7 +302,7 @@ class DynamicSparseEmbeddingColumn(PartitionableColumn):
       x = tf.expand_dims(x, axis=0)
       is_scala = True
 
-    sparse_x = tf.string_split(x, self._delimiter)
+    sparse_x = tf.string_split(x, self._delimiter, skip_empty=False)
     x = tf.strings.to_hash_bucket_fast(
       sparse_x.values, np.iinfo(tf.int64.as_numpy_dtype).max)
     sp = tf.sparse.SparseTensor(sparse_x.indices, x, sparse_x.dense_shape)

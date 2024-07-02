@@ -20,13 +20,14 @@ import numpy as np
 
 from graphlearn import pywrap_graphlearn as pywrap
 from graphlearn.python.data.state import DagState
+from graphlearn.python.data.values import SubGraph
 from graphlearn.python.errors import OutOfRangeError, \
   raise_exception_on_not_ok_status
 
 global_dag_state = DagState()
 
 class Dataset(object):
-  def __init__(self, dag, window=10):
+  def __init__(self, dag, window=10, keep_alive_rounds=1, drop_last=False):
     assert dag.is_ready(), \
       "Query should start with E()/V() and end with values()."
     assert isinstance(window, int) and 0 < window < 128, \
@@ -34,42 +35,70 @@ class Dataset(object):
 
     self._dag = dag
     self._dag_id = dag.name
-    self._cur_res = None
+    self.keep_alive_rounds = keep_alive_rounds
+    self.drop_last = drop_last
+    self._last_responses = []
 
-    graph = dag.graph
-    client = graph.get_client()
-    status = client.run_dag(self._dag.dag_def)
-    raise_exception_on_not_ok_status(status)
-
+    self._graph = dag.graph
+    self._client = self._graph.get_client()
     pywrap.set_dataset_capacity(window)
-    self._dag_dataset = pywrap.Dataset(client, self._dag_id)
-    graph.add_dataset(self)
+
+    self._dag_datasets = []
+    # initialize the dataset for the all possible clients, note that the dag_def may
+    # need to be copied to avoid been moved
+    for index in range(len(self._client)):
+      status = self._client.run_dag(self._dag.dag_def, index != len(self._client) - 1)
+      raise_exception_on_not_ok_status(status)
+      self._dag_datasets.append(pywrap.Dataset(self._client.current_client, self._dag_id))
+      # move to the next client
+      self._client.connect_to_next_server()
+
+    # starting from the dataset from the first client
+    self._current_index = 0
+    # associate to graph to delete it when the graph been deleted
+    self._graph.add_dataset(self)
+
+  def del_last_responses(self):
+    [pywrap.del_get_dag_value_response(res) for res in self._last_responses]
+    self._last_responses = []
 
   def next(self):
-    # Delete the response of last round.
-    if self._cur_res:
-      pywrap.del_get_dag_value_response(self._cur_res)
+    # Delete the response of last `keep_alive_rounds`` round.
+    if len(self._last_responses) == self.keep_alive_rounds:
+      self.del_last_responses()
 
     # New response.
     state = global_dag_state.get(self._dag.name)
 
     # Fill response.
-    res = self._dag_dataset.next(state)
+    res = self._dag_datasets[self._current_index].next(state)
 
     if res and res.valid():
       dag_values = DagValues(self._dag, res)
       result = dag_values.process()
-      self._cur_res = res
+      self._last_responses.append(res)
+      count = dag_values[self._dag.list_alias()[0]].shape[0]
+      if self.drop_last and (count < self._dag.batch_size):
+        return self.next()
       return result
     else:
-      global_dag_state.inc(self._dag.name)
       if res:
-        pywrap.del_get_dag_value_response(res)
-      self._cur_res = None
-      raise OutOfRangeError("OutOfRange")
+        self._last_responses.append(res)
+      self.del_last_responses()
+
+      if self._current_index < len(self._dag_datasets) - 1:
+        self._current_index = self._current_index + 1
+        return self.next()
+      else:
+        self._current_index = 0
+        # start the next epoch
+        global_dag_state.inc(self._dag.name)
+        raise OutOfRangeError("OutOfRange: end of epoch")
 
   def close(self):
-    self._dag_dataset.close()
+    for dataset in self._dag_datasets:
+      if dataset is not None:
+        dataset.close()
 
 
 class DagValues(object):
@@ -102,19 +131,25 @@ class DagValues(object):
 
     # Add the attributes for the Nodes/Edges.
     lookup_node = node.get_lookup_node()
-    res.int_attrs = pywrap.get_dag_value(self._res, lookup_node.nid, "ia")
-    res.float_attrs = pywrap.get_dag_value(self._res, lookup_node.nid, "fa")
-    res.string_attrs = pywrap.get_dag_value(self._res, lookup_node.nid, "sa")
-    res.weights = pywrap.get_dag_value(self._res, lookup_node.nid, "wei")
-    res.labels = pywrap.get_dag_value(self._res, lookup_node.nid, "lb")
+    if isinstance(res, SubGraph):
+      data = res.nodes
+    else:
+      data = res
+    if lookup_node is not None:
+      data.int_attrs = pywrap.get_dag_value(self._res, lookup_node.nid, "ia")
+      data.float_attrs= pywrap.get_dag_value(self._res, lookup_node.nid, "fa")
+      data.string_attrs = pywrap.get_dag_value(self._res, lookup_node.nid, "sa")
+      data.weights = pywrap.get_dag_value(self._res, lookup_node.nid, "wei")
+      data.labels = pywrap.get_dag_value(self._res, lookup_node.nid, "lb")
+      data.timestamps = pywrap.get_dag_value(self._res, lookup_node.nid, "ts")
 
     # Add degrees for the Nodes.
     for dg_node in node.get_degree_nodes():
       if dg_node.node_from == pywrap.NodeFrom.EDGE_SRC:
-        res.add_out_degrees(dg_node.edge_type,
-                            pywrap.get_dag_value(self._res, dg_node.nid, "dg"))
+        data.add_out_degrees(dg_node.edge_type,
+                             pywrap.get_dag_value(self._res, dg_node.nid, "dg"))
       if dg_node.node_from == pywrap.NodeFrom.EDGE_DST or \
           dg_node.edge_type in self._graph.undirected_edges:
-        res.add_in_degrees(dg_node.edge_type,
+        data.add_in_degrees(dg_node.edge_type,
                            pywrap.get_dag_value(self._res, dg_node.nid, "dg"))
     return res

@@ -18,15 +18,22 @@ from __future__ import print_function
 """DataLoader for pyG."""
 
 import os
-
-import torch
+try:
+  import torch
+except ImportError:
+  pass
 
 
 try:
   from torch_geometric.data import Data, Batch
 except ImportError:
   pass
-  
+
+try:
+  from torch_geometric.data import HeteroData # PyG 2.x
+except ImportError:
+  pass
+
 from torch.utils.data.dataloader import DataLoader, default_collate
 
 from graphlearn.python.nn.pytorch.data.dataset import Dataset as GLDataset
@@ -52,13 +59,14 @@ class Collater(object):
       return Batch.from_data_list(batch)
     elif isinstance(elem, torch.Tensor):
       return default_collate(batch)
+    elif isinstance(elem, HeteroData):
+      return Batch.from_data_list(batch)
     raise TypeError('PyGDataLoader found invalid type: {}'.format(type(elem)))
 
   def __call__(self, batch):
     return self.collate(batch)
 
 
-# TODO(baole): Support evenly dataset splitting in C++ layer.
 class PyGDataLoader():
     """pyG Data loader which needs specified length.
 

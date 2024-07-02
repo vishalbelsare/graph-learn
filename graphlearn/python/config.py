@@ -20,9 +20,6 @@ import functools
 from graphlearn import pywrap_graphlearn as pywrap
 
 
-def set_enable_actor(flag):
-  pywrap.set_enable_actor(flag)
-
 def set_default_neighbor_id(nbr_id):
   pywrap.set_default_neighbor_id(nbr_id)
 
@@ -49,6 +46,15 @@ def set_default_string_attribute(value=''):
   """ Set default global string attribute.
   """
   pywrap.set_default_string_attr(str(value))
+
+def set_default_weight(value=0.0):
+  pywrap.set_default_weight(value)
+
+def set_default_label(value=-1):
+  pywrap.set_default_label(value)
+
+def set_default_timestamp(value=-1):
+  pywrap.set_default_timestamp(value)
 
 def set_timeout(time_in_second):
   pywrap.set_timeout(time_in_second)
@@ -95,10 +101,28 @@ def set_tape_capacity(size):
 def set_ignore_invalid(value):
   pywrap.set_ignore_invalid(value)
 
+def set_default_full_nbr_num(num):
+  pywrap.set_default_full_nbr_num(num)
+
+def set_local_node_cache_capacity(count):
+  assert 0 <= count, "local node cache count should be >= 0."
+  pywrap.set_local_node_cache_capacity(count)
+
 def enable_actor():
   pywrap.set_enable_actor(1)
 
-def set_local_shard_count(count):
+def set_actor_local_shard_count(count):
   assert isinstance(count, int) and count > 0
-  pywrap.set_local_shard_count(count)
+  pywrap.set_actor_local_shard_count(count)
 
+def set_sampler_retry_times(times):
+  pywrap.set_sampler_retry_times(times)
+
+def set_field_delimiter(delimiter="\t"):
+  pywrap.set_field_delimiter(delimiter)
+
+def set_vineyard_graph_id(graph_id):
+  pywrap.set_vineyard_graph_id(graph_id)
+
+def set_vineyard_ipc_socket(ipc_socket):
+  pywrap.set_vineyard_ipc_socket(ipc_socket)

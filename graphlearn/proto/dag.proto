@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-import "graphlearn/proto/tensor.proto";
+import "tensor.proto";
 
 package graphlearn;
 
@@ -26,4 +26,5 @@ message DagDef {
 message DagNodeValue {
   int32 id = 1;
   repeated TensorValue tensors = 2;
+  repeated SparseTensorValue sparse_tensors = 3;
 }

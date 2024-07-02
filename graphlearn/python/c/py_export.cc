@@ -16,13 +16,13 @@ limitations under the License.
 #include <cstdint>
 #include <typeinfo>
 
-#include "graphlearn/include/client.h"
-#include "graphlearn/include/config.h"
-#include "graphlearn/include/data_source.h"
-#include "graphlearn/include/index_option.h"
-#include "graphlearn/include/server.h"
-#include "graphlearn/include/status.h"
-#include "graphlearn/python/c/py_bind.h"
+#include "include/client.h"
+#include "include/config.h"
+#include "include/data_source.h"
+#include "include/index_option.h"
+#include "include/server.h"
+#include "include/status.h"
+#include "python/c/py_bind.h"
 
 using namespace graphlearn;
 
@@ -35,7 +35,6 @@ void init_contrib_module(py::module&);
 PYBIND11_MODULE(pywrap_graphlearn, m) {
   m.doc() = "Python interface for graph-learn.";
   // setters
-  m.def("set_enable_actor", &SetGlobalFlagEnableActor);
   m.def("set_default_neighbor_id", &SetGlobalFlagDefaultNeighborId);
   m.def("set_tracker_mode", &SetGlobalFlagTrackerMode);
   m.def("set_padding_mode", &SetGlobalFlagPaddingMode);
@@ -43,6 +42,9 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
   m.def("set_default_int_attr", &SetGlobalFlagDefaultIntAttribute);
   m.def("set_default_float_attr", &SetGlobalFlagDefaultFloatAttribute);
   m.def("set_default_string_attr", &SetGlobalFlagDefaultStringAttribute);
+  m.def("set_default_weight", &SetGlobalFlagDefaultWeight);
+  m.def("set_default_label", &SetGlobalFlagDefaultLabel);
+  m.def("set_default_timestamp", &SetGlobalFlagDefaultTimestamp);
   m.def("set_retry_times", &SetGlobalFlagRetryTimes);
   m.def("set_timeout", &SetGlobalFlagTimeout);
   m.def("set_inmemory_queuesize", &SetGlobalFlagInMemoryQueueSize);
@@ -62,13 +64,15 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
   m.def("set_tape_capacity", &SetGlobalFlagTapeCapacity);
   m.def("set_dataset_capacity", &SetGlobalFlagDatasetCapacity);
   m.def("set_ignore_invalid", &SetGlobalFlagIgnoreInvalid);
-
+  m.def("set_sampler_retry_times", &SetGlobalFlagSamplingRetryTimes);
+  m.def("set_field_delimiter", &SetGlobalFlagFieldDelimiter);
+  m.def("set_default_full_nbr_num", &SetGlobalFlagDefaultFullNbrNum);
+  m.def("set_local_node_cache_capacity", &SetGlobalFlagLocalNodeCacheCapacity);
   // For Actor
   m.def("set_enable_actor", &SetGlobalFlagEnableActor);
-  m.def("set_local_shard_count", &SetGlobalFlagLocalShardCount);
+  m.def("set_actor_local_shard_count", &SetGlobalFlagActorLocalShardCount);
 
   // Constants
-  m.attr("kPartitionKey") = kPartitionKey;
   m.attr("kOpName") = kOpName;
   m.attr("kNodeType") = kNodeType;
   m.attr("kEdgeType") = kEdgeType;
@@ -110,13 +114,20 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
   m.attr("kStrCols") = kStrCols;
   m.attr("kStrProps") = kStrProps;
   m.attr("kFilterType") = kFilterType;
-  m.attr("kFilterIds") = kFilterIds;
+  m.attr("kFilterField") = kFilterField;
+  m.attr("kFilterValues") = kFilterValues;
   m.attr("kDegrees") = kDegrees;
   m.attr("kEpoch") = kEpoch;
   m.attr("kNodeFrom") = kNodeFrom;
+  m.attr("kNeedDist") = kNeedDist;
+  m.attr("kDistToSrc") = kDistToSrc;
+  m.attr("kDistToDst") = kDistToDst;
 
   // getters
   m.def("get_tracker_mode", &GetGlobalFlagTrackerMode);
+
+  m.def("set_vineyard_graph_id", &SetGlobalFlagVineyardGraphID);
+  m.def("set_vineyard_ipc_socket", &SetGlobalFlagVineyardIPCSocket);
 
   py::enum_<error::Code>(m, "ErrorCode")
     .value("OK", error::Code::OK)
@@ -176,11 +187,22 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
     .value("EDGE_DST", NodeFrom::kEdgeDst)
     .value("NODE", NodeFrom::kNode);
 
+  py::enum_<FilterType>(m, "FilterType")
+    .value("OPERATOR_UNSPECIFIED", FilterType::kOperatorUnspecified)
+    .value("EQUAL", FilterType::kEqual)
+    .value("LARGER_THAN", FilterType::kLargerThan);
+
+  py::enum_<FilterField>(m, "FilterField")
+    .value("FIELD_UNSPECIFIED", FilterField::kFieldUnspecified)
+    .value("ID", FilterField::kId)
+    .value("TIMESTAMP", FilterField::kTimestamp);
+
   py::enum_<io::DataFormat>(m, "DataFormat")
     .value("DEFAULT", io::DataFormat::kDefault)
     .value("WEIGHTED", io::DataFormat::kWeighted)
     .value("LABELED", io::DataFormat::kLabeled)
-    .value("ATTRIBUTED", io::DataFormat::kAttributed);
+    .value("ATTRIBUTED", io::DataFormat::kAttributed)
+    .value("TIMESTAMPED", io::DataFormat::kTimestamped);
 
   py::enum_<io::Direction>(m, "Direction")
     .value("ORIGIN", io::Direction::kOrigin)
@@ -199,7 +221,9 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
     .def_readwrite("id_type", &io::NodeSource::id_type)
     .def_readwrite("format", &io::NodeSource::format)
     .def_readwrite("attr_info", &io::NodeSource::attr_info)
-    .def_readwrite("option", &io::NodeSource::option);
+    .def_readwrite("option", &io::NodeSource::option)
+    .def_readwrite("view_type", &io::NodeSource::view_type)
+    .def_readwrite("use_attrs", &io::NodeSource::use_attrs);
 
   py::class_<io::EdgeSource>(m, "EdgeSource")
     .def(py::init<>())
@@ -210,7 +234,9 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
     .def_readwrite("format", &io::EdgeSource::format)
     .def_readwrite("direction", &io::EdgeSource::direction)
     .def_readwrite("attr_info", &io::EdgeSource::attr_info)
-    .def_readwrite("option", &io::EdgeSource::option);
+    .def_readwrite("option", &io::EdgeSource::option)
+    .def_readwrite("view_type", &io::EdgeSource::view_type)
+    .def_readwrite("use_attrs", &io::EdgeSource::use_attrs);
 
   py::class_<Status>(m, "Status")
     .def("ok", &Status::ok)
@@ -222,7 +248,8 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
     .def("start", &Server::Start)
     .def("init", &Server::Init)
     .def("stop", &Server::Stop)
-    .def("stop_sampling", &Server::StopSampling);
+    .def("stop_sampling", &Server::StopSampling)
+    .def("get_stats", &Server::GetStats);
 
   m.def("server",
         &NewServer,
@@ -240,7 +267,7 @@ PYBIND11_MODULE(pywrap_graphlearn, m) {
         &NewRpcClient,
         py::return_value_policy::take_ownership,
         py::arg("server_id") = -1,
-        py::arg("server_own") = false);
+        py::arg("client_own") = true);
 
   init_client_module(m);
 

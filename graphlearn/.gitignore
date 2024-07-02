@@ -1,0 +1,12 @@
+graph_learn.egg-info/
+dist/
+examples/tf/*.tar.gz
+
+# clangd
+.cache/
+
+# core dump
+/core
+
+# ignore generated version.py
+/python/version.py
